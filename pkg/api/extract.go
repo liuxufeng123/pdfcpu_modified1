@@ -74,9 +74,9 @@ func ExtractImagesRaw(rs io.ReadSeeker, selectedPages []string, conf *model.Conf
 }
 
 // ExtractImages extracts and digests embedded image resources from rs for selected pages.
-func ExtractImages(rs io.ReadSeeker, selectedPages []string, digestImage func(model.Image, bool, int) error, conf *model.Configuration) error {
+func ExtractImages(rs io.ReadSeeker, selectedPages []string, digestImage func(model.Image, bool, int) []byte, conf *model.Configuration) [][]byte {
 	if rs == nil {
-		return errors.New("pdfcpu: ExtractImages: missing rs")
+		return nil
 	}
 
 	if conf == nil {
@@ -86,16 +86,16 @@ func ExtractImages(rs io.ReadSeeker, selectedPages []string, digestImage func(mo
 
 	ctx, _, _, _, err := ReadValidateAndOptimize(rs, conf, time.Now())
 	if err != nil {
-		return err
+		return nil
 	}
 
 	if err := ctx.EnsurePageCount(); err != nil {
-		return err
+		return nil
 	}
 
 	pages, err := PagesForPageSelection(ctx.PageCount, selectedPages, true, true)
 	if err != nil {
-		return err
+		return nil
 	}
 
 	pageNrs := []int{}
@@ -108,38 +108,25 @@ func ExtractImages(rs io.ReadSeeker, selectedPages []string, digestImage func(mo
 
 	sort.Ints(pageNrs)
 	maxPageDigits := len(strconv.Itoa(pageNrs[len(pageNrs)-1]))
-
+	var bytesSlice [][]byte
 	for _, i := range pageNrs {
 		mm, err := pdfcpu.ExtractPageImages(ctx, i, false)
 		if err != nil {
-			return err
+			return nil
 		}
 		singleImgPerPage := len(mm) == 1
-		for _, img := range mm {
-			if err := digestImage(img, singleImgPerPage, maxPageDigits); err != nil {
-				return err
-			}
-		}
-	}
 
-	return nil
+		for _, img := range mm {
+			filebyte := digestImage(img, singleImgPerPage, maxPageDigits)
+			bytesSlice = append(bytesSlice, filebyte)
+
+		}
+
+	}
+	return bytesSlice
 }
 
 // ExtractImagesFile dumps embedded image resources from inFile into outDir for selected pages.
-func ExtractImagesFile(inFile, outDir string, selectedPages []string, conf *model.Configuration) error {
-	f, err := os.Open(inFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if log.CLIEnabled() {
-		log.CLI.Printf("extracting images from %s into %s/ ...\n", inFile, outDir)
-	}
-	fileName := strings.TrimSuffix(filepath.Base(inFile), ".pdf")
-
-	return ExtractImages(f, selectedPages, pdfcpu.WriteImageToDisk(outDir, fileName), conf)
-}
 
 func writeFonts(ff []pdfcpu.Font, outDir, fileName string) error {
 	for _, f := range ff {
